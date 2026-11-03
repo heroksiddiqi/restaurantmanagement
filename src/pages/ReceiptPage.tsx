@@ -1,10 +1,9 @@
 import { format } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { LayoutGrid, Plus, Printer } from 'lucide-react';
+import { Plus, Printer, ReceiptText } from 'lucide-react';
 import { Navbar, NavbarBackLink, Page } from 'konsta/react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../db/db';
-import { createOrder, getOpenOrderForTable } from '../db/orders';
 import { formatTaka } from '../lib/money';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -22,27 +21,6 @@ export function ReceiptPage() {
   const order = useLiveQuery(() => db.orders.get(id), [id]);
   const settings = useLiveQuery(() => db.settings.get('app'), []);
 
-  async function startNewOrder() {
-    if (!order) return;
-    if (order.type === 'dine-in' && order.tableId != null) {
-      const existing = await getOpenOrderForTable(order.tableId);
-      if (existing?.id != null) {
-        navigate(`/order/${existing.id}`);
-        return;
-      }
-      const newId = await createOrder({
-        tableId: order.tableId,
-        tableName: order.tableName,
-        type: 'dine-in',
-      });
-      navigate(`/order/${newId}`);
-      return;
-    }
-
-    const newId = await createOrder({ type: 'parcel' });
-    navigate(`/order/${newId}`);
-  }
-
   if (!order) {
     return (
       <Page>
@@ -52,7 +30,7 @@ export function ReceiptPage() {
             <NavbarBackLink
               text="Back"
               showText
-              onClick={() => navigate('/tables')}
+              onClick={() => navigate('/order')}
             />
           }
         />
@@ -68,7 +46,11 @@ export function ReceiptPage() {
     'dd MMM yyyy, hh:mm a',
   );
   const place =
-    order.type === 'parcel' ? 'Parcel' : (order.tableName ?? 'Dine-in');
+    order.type === 'counter'
+      ? 'Counter'
+      : order.type === 'parcel'
+        ? 'Parcel'
+        : (order.tableName ?? 'Dine-in');
   const method =
     order.paymentMethod === 'due'
       ? 'Due'
@@ -85,7 +67,7 @@ export function ReceiptPage() {
           <NavbarBackLink
             text="Back"
             showText
-            onClick={() => navigate('/tables')}
+            onClick={() => navigate('/order')}
           />
         }
       />
@@ -229,17 +211,17 @@ export function ReceiptPage() {
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={() => void startNewOrder()}
+            onClick={() => navigate('/order')}
             className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-neutral-200 bg-white text-sm font-medium text-neutral-800 active:bg-neutral-100"
           >
-            <Plus className="h-4 w-4" /> New order
+            <Plus className="h-4 w-4" /> New bill
           </button>
           <button
             type="button"
-            onClick={() => navigate('/tables')}
+            onClick={() => navigate('/orders')}
             className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-neutral-200 bg-white text-sm font-medium text-neutral-800 active:bg-neutral-100"
           >
-            <LayoutGrid className="h-4 w-4" /> Tables
+            <ReceiptText className="h-4 w-4" /> History
           </button>
         </div>
       </div>

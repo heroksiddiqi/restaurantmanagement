@@ -10,6 +10,7 @@ import { db } from './db';
 import type {
   MenuItem,
   Order,
+  OrderItem,
   OrderType,
   Settings,
 } from './types';
@@ -93,6 +94,27 @@ async function audit(
   });
 }
 
+async function generateOrderNo(timestamp: number): Promise<string> {
+  const dayStart = startOfLocalDay(timestamp);
+  const dayEnd = endOfLocalDay(timestamp);
+  const todaysOrders = await db.orders
+    .where('createdAt')
+    .between(dayStart, dayEnd, true, false)
+    .toArray();
+
+  let orderNo = nextOrderNo(
+    todaysOrders.map((order) => order.orderNo),
+    timestamp,
+  );
+  let guard = 0;
+  while (guard < 10 && (await db.orders.where('orderNo').equals(orderNo).count())) {
+    const sequence = parseOrderSequence(orderNo) ?? 0;
+    orderNo = buildOrderNo(timestamp, sequence + 1);
+    guard += 1;
+  }
+  return orderNo;
+}
+
 export async function getOpenOrderForTable(
   tableId: number,
 ): Promise<Order | undefined> {
@@ -108,23 +130,7 @@ export async function createOrder(input: CreateOrderInput): Promise<number> {
   const settings = await db.settings.get('app');
 
   return db.transaction('rw', db.orders, db.auditLogs, async () => {
-    const dayStart = startOfLocalDay(timestamp);
-    const dayEnd = endOfLocalDay(timestamp);
-    const todaysOrders = await db.orders
-      .where('createdAt')
-      .between(dayStart, dayEnd, true, false)
-      .toArray();
-
-    let orderNo = nextOrderNo(
-      todaysOrders.map((order) => order.orderNo),
-      timestamp,
-    );
-    let guard = 0;
-    while (guard < 10 && (await db.orders.where('orderNo').equals(orderNo).count())) {
-      const sequence = parseOrderSequence(orderNo) ?? 0;
-      orderNo = buildOrderNo(timestamp, sequence + 1);
-      guard += 1;
-    }
+    const orderNo = await generateOrderNo(timestamp);
 
     const order: Order = {
       orderNo,
@@ -362,6 +368,64 @@ export async function voidOrder(
 
 export async function deleteOrder(orderId: number): Promise<void> {
   await db.orders.delete(orderId);
+}
+
+export interface CounterOrderInput {
+  /** Final bill amount in taka, as quoted at the counter. */
+  amount: number;
+  /** Optional menu items for reference on the bill. */
+  items?: MenuSelection[];
+}
+
+export async function createCounterOrder(
+  input: CounterOrderInput,
+): Promise<Order> {
+  const timestamp = Date.now();
+  const amount = Math.round(input.amount * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Bill amount must be greater than zero.');
+  }
+
+  const items: OrderItem[] = [];
+  for (const selection of input.items ?? []) {
+    if (selection.item.id == null || selection.qty <= 0) continue;
+    items.push(toOrderItem(selection.item, selection.qty));
+  }
+
+  return db.transaction('rw', db.orders, db.auditLogs, async () => {
+    const orderNo = await generateOrderNo(timestamp);
+
+    const order: Order = {
+      orderNo,
+      type: 'counter',
+      status: 'paid',
+      items,
+      subtotal: amount,
+      discountType: 'fixed',
+      discountValue: 0,
+      discount: 0,
+      vatPct: 0,
+      servicePct: 0,
+      vat: 0,
+      service: 0,
+      total: amount,
+      paymentMethod: 'cash',
+      paidAmount: amount,
+      cashReceived: amount,
+      change: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      paidAt: timestamp,
+    };
+
+    const id = await db.orders.add(order);
+    await audit('order.counter', id, {
+      orderNo,
+      total: amount,
+      itemCount: items.reduce((sum, line) => sum + line.qty, 0),
+    });
+    return { ...order, id };
+  });
 }
 
 export async function cleanupEmptyOrders(): Promise<void> {

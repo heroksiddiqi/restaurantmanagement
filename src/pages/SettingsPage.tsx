@@ -4,7 +4,6 @@ import {
   Check,
   ChevronRight,
   Database,
-  LayoutGrid,
   UtensilsCrossed,
 } from 'lucide-react';
 import { useState, type InputHTMLAttributes } from 'react';
@@ -64,11 +63,9 @@ function NavRow({
 function SettingsForm({
   settings,
   menuCount,
-  tableCount,
 }: {
   settings: Settings;
   menuCount: number;
-  tableCount: number;
 }) {
   const navigate = useNavigate();
 
@@ -276,12 +273,6 @@ function SettingsForm({
           onClick={() => navigate('/menu')}
         />
         <NavRow
-          icon={LayoutGrid}
-          title="Dining tables"
-          value={`${tableCount} tables`}
-          onClick={() => navigate('/settings/tables')}
-        />
-        <NavRow
           icon={Database}
           title="Backup & restore"
           value="Export or import local JSON"
@@ -300,7 +291,6 @@ function SettingsForm({
 export function SettingsPage() {
   const settings = useLiveQuery(() => db.settings.get('app'), []);
   const menuCount = useLiveQuery(() => db.menuItems.count(), []);
-  const tableCount = useLiveQuery(() => db.diningTables.count(), []);
 
   return (
     <Page className="overflow-x-hidden pb-safe-24">
@@ -317,7 +307,6 @@ export function SettingsPage() {
         <SettingsForm
           settings={settings}
           menuCount={menuCount ?? 0}
-          tableCount={tableCount ?? 0}
         />
       )}
     </Page>

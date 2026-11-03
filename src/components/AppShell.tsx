@@ -1,6 +1,6 @@
 import {
   ChartColumn,
-  LayoutGrid,
+  ClipboardList,
   ReceiptText,
   Settings as SettingsIcon,
   UtensilsCrossed,
@@ -14,13 +14,11 @@ import {
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { DataPage } from '../pages/DataPage';
-import { OrderPage } from '../pages/OrderPage';
 import { MenuPage } from '../pages/MenuPage';
+import { OrderEntryPage } from '../pages/OrderEntryPage';
 import { OrdersPage } from '../pages/OrdersPage';
 import { ReceiptPage } from '../pages/ReceiptPage';
 import { SettingsPage } from '../pages/SettingsPage';
-import { TableSetupPage } from '../pages/TableSetupPage';
-import { TablesPage } from '../pages/TablesPage';
 
 const ReportsPage = lazy(() =>
   import('../pages/ReportsPage').then((module) => ({
@@ -29,9 +27,9 @@ const ReportsPage = lazy(() =>
 );
 
 const tabs = [
-  { path: '/tables', label: 'Tables', icon: LayoutGrid },
+  { path: '/order', label: 'Order', icon: ClipboardList },
   { path: '/menu', label: 'Menu', icon: UtensilsCrossed },
-  { path: '/orders', label: 'Orders', icon: ReceiptText },
+  { path: '/orders', label: 'History', icon: ReceiptText },
   { path: '/reports', label: 'Reports', icon: ChartColumn },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
@@ -39,9 +37,7 @@ const tabs = [
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
-  const hideTabbar =
-    location.pathname.startsWith('/order/') ||
-    location.pathname.startsWith('/receipt/');
+  const hideTabbar = location.pathname.startsWith('/receipt/');
 
   return (
     <App
@@ -56,17 +52,16 @@ export function AppShell() {
         }
       >
         <Routes>
-          <Route path="/" element={<Navigate to="/tables" replace />} />
-          <Route path="/tables" element={<TablesPage />} />
+          <Route path="/" element={<Navigate to="/order" replace />} />
+          <Route path="/tables" element={<Navigate to="/order" replace />} />
+          <Route path="/order" element={<OrderEntryPage />} />
           <Route path="/menu" element={<MenuPage />} />
-          <Route path="/order/:orderId" element={<OrderPage />} />
           <Route path="/receipt/:orderId" element={<ReceiptPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/settings/tables" element={<TableSetupPage />} />
           <Route path="/settings/data" element={<DataPage />} />
-          <Route path="*" element={<Navigate to="/tables" replace />} />
+          <Route path="*" element={<Navigate to="/order" replace />} />
         </Routes>
       </Suspense>
 

@@ -15,7 +15,7 @@ export interface RestaurantTable {
 }
 
 export type OrderStatus = 'unpaid' | 'due' | 'paid' | 'void';
-export type OrderType = 'dine-in' | 'parcel';
+export type OrderType = 'dine-in' | 'parcel' | 'counter';
 export type PaymentMethod = 'cash' | 'bkash' | 'nagad' | 'card' | 'due';
 export type DiscountType = 'percent' | 'fixed';
 
