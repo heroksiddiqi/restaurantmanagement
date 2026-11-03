@@ -194,7 +194,7 @@ export function OrderEntryPage() {
   }
 
   return (
-    <Page className="pb-safe-24">
+    <Page className="pb-[calc(160px+env(safe-area-inset-bottom))]">
       <Navbar
         title="Order"
         subtitle={settings?.restaurantName ?? 'Counter billing'}
@@ -308,20 +308,19 @@ export function OrderEntryPage() {
         </div>
       )}
 
-      {todaysOrders && totalCount > 0 && (
-        <div className="mx-4 mt-4 rounded-2xl bg-emerald-700 px-4 py-3 text-white shadow-sm">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-widest text-emerald-100">
-                Total · {totalCount} {totalCount === 1 ? 'bill' : 'bills'}
-              </p>
-              <p className="mt-1 text-2xl font-semibold leading-none">
-                {formatTaka(totalAmount)}
-              </p>
-            </div>
+      {/* Floating total above the tabbar */}
+      <div className="pointer-events-none fixed bottom-[calc(80px+env(safe-area-inset-bottom))] left-1/2 z-30 w-full max-w-md -translate-x-1/2 px-4">
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-700 px-4 py-2.5 text-white shadow-lg">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-emerald-100">
+              Total · {totalCount} {totalCount === 1 ? 'bill' : 'bills'}
+            </p>
+            <p className="text-xl font-semibold leading-tight">
+              {formatTaka(totalAmount)}
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Item picker sheet */}
       <Sheet
