@@ -63,7 +63,8 @@ export interface Order {
 export interface Expense {
   id?: number;
   date: string;
-  category: string;
+  name?: string;
+  category?: string;
   amount: number;
   note?: string;
 }

@@ -29,6 +29,86 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+   Bottom tabbar
+   Konsta's material tabbar hard-codes `overflow-hidden` on its inner pane and
+   ignores `ToolbarPane`'s className, so the scroll behaviour lives here and is
+   opted into with the `innerClassName="tabbar-scroll"` prop on <Tabbar>.
+   Five tabs stay visible; the rest are reached by swiping sideways.
+--------------------------------------------------------------------------- */
+:root {
+  --tabbar-surface: #e8f0e9;
+}
+
+.tabbar-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  justify-content: flex-start;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.tabbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Edge fades so it is obvious that more tabs are hidden off-screen. */
+.tabbar-fade-left {
+  background: linear-gradient(
+    to right,
+    var(--tabbar-surface) 25%,
+    rgb(232 240 233 / 0) 100%
+  );
+}
+
+.tabbar-fade-right {
+  background: linear-gradient(
+    to left,
+    var(--tabbar-surface) 25%,
+    rgb(232 240 233 / 0) 100%
+  );
+}
+
+@keyframes tabbar-hint-right {
+  0%,
+  100% {
+    transform: translateX(0);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateX(3px);
+    opacity: 1;
+  }
+}
+
+@keyframes tabbar-hint-left {
+  0%,
+  100% {
+    transform: translateX(0);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateX(-3px);
+    opacity: 1;
+  }
+}
+
+.tabbar-hint {
+  animation: tabbar-hint-right 1.8s ease-in-out infinite;
+}
+
+.tabbar-hint-left {
+  animation-name: tabbar-hint-left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabbar-hint {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
 @media print {
   html,
   body {

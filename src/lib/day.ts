@@ -27,3 +27,8 @@ export function addDays(key: string, amount: number): string {
 export function todayKey(): string {
   return toDateKey(Date.now());
 }
+
+export function startOfMonthKey(key: string): string {
+  const date = fromDateKey(key);
+  return toDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
+}

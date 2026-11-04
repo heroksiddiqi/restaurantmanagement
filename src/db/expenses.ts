@@ -1,25 +1,20 @@
 import { db } from './db';
 import type { Expense } from './types';
 
-export const EXPENSE_CATEGORIES = [
-  'Ingredients',
-  'Utilities',
-  'Salary',
-  'Rent',
-  'Transport',
-  'Other',
-] as const;
-
 export interface ExpenseInput {
   date: string;
-  category: string;
+  name: string;
   amount: number;
   note?: string;
 }
 
+export function expenseTitle(expense: Expense): string {
+  return expense.name?.trim() || expense.category?.trim() || 'Expense';
+}
+
 export async function addExpense(input: ExpenseInput): Promise<number> {
-  const category = input.category.trim();
-  if (!category) throw new Error('Expense category is required.');
+  const name = input.name.trim();
+  if (!name) throw new Error('Expense name is required.');
   if (!Number.isFinite(input.amount) || input.amount <= 0) {
     throw new Error('Expense amount must be greater than zero.');
   }
@@ -29,7 +24,7 @@ export async function addExpense(input: ExpenseInput): Promise<number> {
 
   const expense: Expense = {
     date: input.date,
-    category,
+    name,
     amount: Math.round(input.amount * 100) / 100,
     note: input.note?.trim() || undefined,
   };
@@ -40,7 +35,7 @@ export async function addExpense(input: ExpenseInput): Promise<number> {
       at: Date.now(),
       action: 'expense.add',
       entityId: id,
-      meta: { date: expense.date, category, amount: expense.amount },
+      meta: { date: expense.date, name: expense.name, amount: expense.amount },
     });
     return id;
   });
@@ -57,7 +52,7 @@ export async function deleteExpense(id: number): Promise<void> {
       entityId: id,
       meta: {
         date: expense.date,
-        category: expense.category,
+        name: expense.name ?? expense.category,
         amount: expense.amount,
       },
     });

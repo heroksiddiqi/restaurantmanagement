@@ -1,17 +1,27 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Minus, Plus, Search, Trash2 } from 'lucide-react';
-import { Navbar, Page, Sheet } from 'konsta/react';
-import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
+import { CalendarDays, Minus, Plus, Search, Trash2 } from 'lucide-react';
+import {
+  Dialog,
+  DialogButton,
+  Navbar,
+  Page,
+  Sheet,
+} from 'konsta/react';
+import { useMemo, useState } from 'react';
+import { DatePickSheet } from '../components/DatePickSheet';
+import { FloatingBar } from '../components/FloatingBar';
 import { MenuGrid } from '../components/MenuGrid';
 import { QuickKeypad } from '../components/QuickKeypad';
 import { db } from '../db/db';
 import { createCounterOrder } from '../db/orders';
+import { saveDayClose } from '../db/dayClose';
 import { MENU_CATEGORIES } from '../db/seed';
 import type { MenuItem } from '../db/types';
 import { tapFeedback } from '../lib/haptics';
 import { resolveKeypad } from '../lib/keypad';
-import { endOfLocalDay, parseOrderSequence, startOfLocalDay } from '../lib/orderNo';
+import { dayRange, todayKey } from '../lib/day';
+import { parseOrderSequence } from '../lib/orderNo';
 import { formatTaka } from '../lib/money';
 
 const CATEGORY_ORDER: string[] = [...MENU_CATEGORIES];
@@ -37,14 +47,29 @@ export function OrderEntryPage() {
     () => db.menuItems.orderBy('code').toArray(),
     [],
   );
-  const todaysOrders = useLiveQuery(async () => {
-    const timestamp = Date.now();
+
+  const [dateKey, setDateKey] = useState(todayKey());
+  const [dateOpen, setDateOpen] = useState(false);
+  const isToday = dateKey === todayKey();
+
+  const orders = useLiveQuery(async () => {
+    const { start, end } = dayRange(dateKey);
     return db.orders
       .where('createdAt')
-      .between(startOfLocalDay(timestamp), endOfLocalDay(timestamp), true, false)
+      .between(start, end, true, false)
       .filter((order) => order.status === 'paid')
       .toArray();
-  }, []);
+  }, [dateKey]);
+
+  const dayExpenses = useLiveQuery(
+    () => db.expenses.where('date').equals(dateKey).toArray(),
+    [dateKey],
+  );
+
+  const existingClose = useLiveQuery(
+    () => db.dayCloses.where('date').equals(dateKey).first(),
+    [dateKey],
+  );
 
   const [amount, setAmount] = useState('');
   const [selected, setSelected] = useState<Map<number, SelectedLine>>(new Map());
@@ -55,6 +80,12 @@ export function OrderEntryPage() {
   const [keypadError, setKeypadError] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [countedCash, setCountedCash] = useState('');
+  const [closeNote, setCloseNote] = useState('');
+  const [closeError, setCloseError] = useState('');
+  const [closing, setClosing] = useState(false);
 
   const activeItems = useMemo(
     () => (menuItems ?? []).filter((item) => item.active),
@@ -81,25 +112,34 @@ export function OrderEntryPage() {
 
   const quantities = useMemo(() => {
     const map = new Map<number, number>();
-    for (const line of selected.values()) map.set(line.item.id as number, line.qty);
+    for (const line of selected.values()) {
+      map.set(line.item.id as number, line.qty);
+    }
     return map;
   }, [selected]);
 
   const itemsSum = useMemo(() => {
     let sum = 0;
-    for (const line of selected.values()) {
-      sum += line.item.price * line.qty;
-    }
+    for (const line of selected.values()) sum += line.item.price * line.qty;
     return round2(sum);
   }, [selected]);
 
   const hasItems = selected.size > 0;
   const effectiveAmount = hasItems ? itemsSum : Number(amount);
-  const canSubmit = !submitting && effectiveAmount > 0;
+  const canSubmit = isToday && !submitting && effectiveAmount > 0;
 
-  const orders = todaysOrders ?? [];
-  const totalAmount = orders.reduce((sum, order) => sum + order.total, 0);
-  const totalCount = orders.length;
+  const dayOrders = orders ?? [];
+  const totalAmount = dayOrders.reduce((sum, order) => sum + order.total, 0);
+  const totalCount = dayOrders.length;
+
+  const expenseTotal = round2(
+    (dayExpenses ?? []).reduce((sum, expense) => sum + expense.amount, 0),
+  );
+  const expectedCash = round2(totalAmount - expenseTotal);
+  const countedValue = Number(countedCash);
+  const countedValid =
+    Number.isFinite(countedValue) && countedValue >= 0 && countedCash !== '';
+  const closeDifference = round2(countedValue - expectedCash);
 
   function handleAdd(item: MenuItem) {
     if (item.id == null) return;
@@ -152,7 +192,9 @@ export function OrderEntryPage() {
     setSelected((previous) => {
       const next = new Map(previous);
       for (const entry of result.entries) {
-        const item = activeItems.find((candidate) => candidate.code === entry.code);
+        const item = activeItems.find(
+          (candidate) => candidate.code === entry.code,
+        );
         if (item?.id == null) continue;
         const existing = next.get(item.id);
         next.set(item.id, { item, qty: (existing?.qty ?? 0) + entry.qty });
@@ -193,12 +235,76 @@ export function OrderEntryPage() {
     }
   }
 
+  function handleCloseOpenChange(open: boolean) {
+    setCloseOpen(open);
+    if (open) {
+      setCountedCash(
+        existingClose ? String(existingClose.countedCash) : '',
+      );
+      setCloseNote(existingClose?.note ?? '');
+      setCloseError('');
+    }
+  }
+
+  async function handleSaveClose() {
+    if (!countedValid || closing) return;
+    setClosing(true);
+    setCloseError('');
+
+    try {
+      await saveDayClose({
+        date: dateKey,
+        openingCash: existingClose?.openingCash ?? 0,
+        expectedCash,
+        countedCash: countedValue,
+        note: closeNote,
+      });
+      setCloseOpen(false);
+    } catch (saveError: unknown) {
+      setCloseError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Something went wrong.',
+      );
+    } finally {
+      setClosing(false);
+    }
+  }
+
   return (
     <Page className="pb-[calc(160px+env(safe-area-inset-bottom))]">
       <Navbar
         title="Order"
         subtitle={settings?.restaurantName ?? 'Counter billing'}
+        right={
+          <button
+            type="button"
+            onClick={() => setDateOpen(true)}
+            aria-label="Pick date"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-neutral-600 active:bg-neutral-100"
+          >
+            <CalendarDays className="h-5 w-5" />
+          </button>
+        }
       />
+
+      <DatePickSheet
+        opened={dateOpen}
+        value={dateKey}
+        max={todayKey()}
+        title="View orders of"
+        onChange={(key) => {
+          if (key) setDateKey(key);
+        }}
+        onClose={() => setDateOpen(false)}
+      />
+
+      {!isToday && (
+        <div className="mx-4 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-medium text-amber-800">
+          Viewing {format(new Date(dateKey), 'dd MMM yyyy')} — bills can only be
+          added for today.
+        </div>
+      )}
 
       {/* Bill amount input */}
       <div className="mx-4 mt-3 grid grid-cols-12 gap-2">
@@ -212,11 +318,11 @@ export function OrderEntryPage() {
               setAmount(event.target.value);
               setError('');
             }}
-            disabled={hasItems}
+            disabled={hasItems || !isToday}
             inputMode="decimal"
             placeholder="0"
             autoComplete="off"
-            className="h-12 w-full rounded-xl border border-neutral-200 bg-neutral-50 pl-7 pr-3 text-base font-semibold tabular-nums text-neutral-900 outline-none transition focus:border-emerald-600 focus:bg-white disabled:bg-emerald-50 disabled:text-neutral-700"
+            className="h-12 w-full rounded-xl border border-neutral-200 bg-neutral-50 pl-7 pr-3 text-base font-semibold tabular-nums text-neutral-900 outline-none transition focus:border-emerald-600 focus:bg-white disabled:bg-neutral-100 disabled:text-neutral-400 has-[&:not(:placeholder-shown)]:border-emerald-600"
           />
         </label>
         <button
@@ -230,30 +336,32 @@ export function OrderEntryPage() {
       </div>
 
       {/* Optional items */}
-      <div className="mx-4 mt-2 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => setItemsOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg px-1 py-1 text-xs font-medium text-emerald-700 active:text-emerald-800"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add items (optional)
-          {hasItems && (
-            <span className="rounded-full bg-emerald-100 px-1.5 text-[10px] font-semibold text-emerald-800">
-              {hasItems ? itemsSum : ''}
-            </span>
-          )}
-        </button>
-        {hasItems && (
+      {isToday && (
+        <div className="mx-4 mt-2 flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => setSelected(new Map())}
-            className="rounded-lg px-1.5 py-1 text-xs font-medium text-red-600 active:bg-red-50"
+            onClick={() => setItemsOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg px-1 py-1 text-xs font-medium text-emerald-700 active:text-emerald-800"
           >
-            Clear
+            <Plus className="h-3.5 w-3.5" />
+            Add items (optional)
+            {hasItems && (
+              <span className="rounded-full bg-emerald-100 px-1.5 text-[10px] font-semibold text-emerald-800">
+                {hasItems ? itemsSum : ''}
+              </span>
+            )}
           </button>
-        )}
-      </div>
+          {hasItems && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Map())}
+              className="rounded-lg px-1.5 py-1 text-xs font-medium text-red-600 active:bg-red-50"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
 
       {error && (
         <p className="mx-4 mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
@@ -263,21 +371,25 @@ export function OrderEntryPage() {
 
       <hr className="mx-4 my-4 border-t border-dashed border-neutral-200" />
 
-      {/* Today's bills */}
-      {!todaysOrders ? (
+      {/* Day's bills */}
+      {!orders ? (
         <p className="px-4 py-8 text-center text-sm text-neutral-500">
           Loading orders…
         </p>
-      ) : orders.length === 0 ? (
+      ) : dayOrders.length === 0 ? (
         <div className="px-8 py-14 text-center">
-          <p className="text-sm font-medium text-neutral-700">No bills yet</p>
+          <p className="text-sm font-medium text-neutral-700">
+            {isToday ? 'No bills yet' : 'No bills on this day'}
+          </p>
           <p className="mt-1 text-xs text-neutral-500">
-            Type the bill amount above and press Submit.
+            {isToday
+              ? 'Type the bill amount above and press Submit.'
+              : 'Orders made on this date will be listed here.'}
           </p>
         </div>
       ) : (
         <div className="mx-4 divide-y divide-neutral-100 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-          {orders.map((order) => {
+          {dayOrders.map((order) => {
             const sequence = parseOrderSequence(order.orderNo);
             const itemNames = order.items
               .map((line) => `${line.name}${line.qty > 1 ? ` ×${line.qty}` : ''}`)
@@ -300,7 +412,7 @@ export function OrderEntryPage() {
                 )}
                 <p className="mt-0.5 text-[10px] text-neutral-400">
                   {format(new Date(order.createdAt), 'hh:mm a')} ·{' '}
-                  {order.orderNo}
+                  {format(new Date(order.createdAt), 'dd MMM yyyy')}
                 </p>
               </div>
             );
@@ -309,18 +421,106 @@ export function OrderEntryPage() {
       )}
 
       {/* Floating total above the tabbar */}
-      <div className="pointer-events-none fixed bottom-[calc(80px+env(safe-area-inset-bottom))] left-1/2 z-30 w-full max-w-md -translate-x-1/2 px-4">
-        <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-700 px-4 py-2.5 text-white shadow-lg">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-widest text-emerald-100">
-              Total · {totalCount} {totalCount === 1 ? 'bill' : 'bills'}
-            </p>
-            <p className="text-xl font-semibold leading-tight">
-              {formatTaka(totalAmount)}
-            </p>
+      <FloatingBar
+        label={
+          isToday
+            ? `Total · ${totalCount} ${totalCount === 1 ? 'bill' : 'bills'}`
+            : `${format(new Date(dateKey), 'dd MMM yyyy')} · ${totalCount} bills`
+        }
+        amount={totalAmount}
+        tone="emerald"
+        right={
+          isToday ? (
+            <button
+              type="button"
+              onClick={() => handleCloseOpenChange(true)}
+              className="shrink-0 rounded-xl bg-white/15 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white active:bg-white/25"
+            >
+              {existingClose ? 'Update close' : 'Close day'}
+            </button>
+          ) : existingClose ? (
+            <span className="shrink-0 rounded-lg bg-white/15 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
+              Closed
+            </span>
+          ) : undefined
+        }
+      />
+
+      {/* Close day dialog */}
+      <Dialog
+        opened={closeOpen}
+        onBackdropClick={() => handleCloseOpenChange(false)}
+        title="Close the day?"
+        content={
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-neutral-500">Orders total</span>
+              <span className="tabular-nums">{formatTaka(totalAmount)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-500">Expenses</span>
+              <span className="tabular-nums">-{formatTaka(expenseTotal)}</span>
+            </div>
+            <div className="flex justify-between border-t border-dashed border-neutral-200 pt-1 font-semibold">
+              <span>Expected cash</span>
+              <span className="tabular-nums">{formatTaka(expectedCash)}</span>
+            </div>
+            <label className="mt-2 block">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
+                Counted cash (৳)
+              </span>
+              <input
+                value={countedCash}
+                onChange={(event) => {
+                  setCountedCash(event.target.value);
+                  setCloseError('');
+                }}
+                inputMode="decimal"
+                placeholder="0"
+                className="h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 text-sm tabular-nums text-neutral-900 outline-none focus:border-emerald-600 focus:bg-white"
+              />
+            </label>
+            {countedValid && (
+              <p
+                className={`text-xs font-medium ${
+                  Math.abs(closeDifference) < 0.01
+                    ? 'text-emerald-700'
+                    : 'text-amber-700'
+                }`}
+              >
+                Difference: {formatTaka(closeDifference)}
+              </p>
+            )}
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
+                Note (optional)
+              </span>
+              <input
+                value={closeNote}
+                onChange={(event) => setCloseNote(event.target.value)}
+                className="h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 text-sm text-neutral-900 outline-none focus:border-emerald-600 focus:bg-white"
+              />
+            </label>
+            {closeError && (
+              <p className="text-xs font-medium text-red-600">{closeError}</p>
+            )}
           </div>
-        </div>
-      </div>
+        }
+        buttons={
+          <>
+            <DialogButton onClick={() => handleCloseOpenChange(false)}>
+              Cancel
+            </DialogButton>
+            <DialogButton
+              strong
+              disabled={!countedValid || closing}
+              onClick={() => void handleSaveClose()}
+            >
+              {closing ? 'Saving…' : 'Save close'}
+            </DialogButton>
+          </>
+        }
+      />
 
       {/* Item picker sheet */}
       <Sheet
