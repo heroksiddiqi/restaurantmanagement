@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import { DEFAULT_SETTINGS, SEED_MENU_ITEMS } from './seed';
+import { DEFAULT_SETTINGS } from './seed';
 import type {
   AuditLog,
   DayClose,
@@ -36,17 +36,11 @@ export class PosDatabase extends Dexie {
 export const db = new PosDatabase();
 
 export async function ensureSeeded(): Promise<void> {
-  const [menuCount, settings] = await Promise.all([
-    db.menuItems.count(),
-    db.settings.get('app'),
-  ]);
+  const settings = await db.settings.get('app');
 
-  if (menuCount > 0 && settings) return;
-
-  await db.transaction('rw', [db.menuItems, db.settings], async () => {
-    if (menuCount === 0) await db.menuItems.bulkAdd(SEED_MENU_ITEMS);
-    if (!settings) await db.settings.put(DEFAULT_SETTINGS);
-  });
+  if (!settings) {
+    await db.settings.put(DEFAULT_SETTINGS);
+  }
 }
 
 export async function getSettings(): Promise<Settings> {
